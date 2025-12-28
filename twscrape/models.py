@@ -81,39 +81,48 @@ class TextLink(JSONTrait):
 
 
 @dataclass
-class AccountAbout(JSONTrait):
-    screen_name: str
+class CommunityRule(JSONTrait):
+    id_str: str
     name: str
-    rest_id: int
-    account_based_in: str | None
-    location_accurate: bool | None
-    affiliate_username: str | None
-    source: str | None
-    username_changes: int | None
-    username_last_changed_at: int | None
-    is_identity_verified: bool | None
-    verified_since_msec: int | None
+    description: str
 
     @staticmethod
     def parse(obj: dict):
-        about = obj.get("about_profile") or {}
-        core = obj.get("core") or {}
-        username_changes = about.get("username_changes", {}).get("count")
-        username_last_changed = about.get("username_changes", {}).get("last_changed_at_msec")
-        verification = obj.get("verification_info", {}) or {}
-        reason = verification.get("reason", {}) or {}
-        return AccountAbout(
-            screen_name=core.get("screen_name", ""),
-            name=core.get("name", ""),
-            rest_id=int_or(obj.get("rest_id")),
-            account_based_in=about.get("account_based_in"),
-            location_accurate=about.get("location_accurate"),
-            affiliate_username=about.get("affiliate_username"),
-            source=about.get("source"),
-            username_changes=int(username_changes) if username_changes is not None else None,
-            username_last_changed_at=int(username_last_changed) if username_last_changed is not None else None,
-            is_identity_verified=verification.get("is_identity_verified"),
-            verified_since_msec=int(reason.get("verified_since_msec")) if reason.get("verified_since_msec") else None,
+        return CommunityRule(
+            id_str=str(obj.get("rest_id", obj.get("id_str", ""))),
+            name=obj.get("name", ""),
+            description=obj.get("description", ""),
+        )
+
+
+@dataclass
+class Community(JSONTrait):
+    id: int
+    id_str: str
+    name: str
+    description: str | None
+    memberCount: int
+    moderatorCount: int
+    rules: list[CommunityRule]
+    topicId: str | None = None
+    topicName: str | None = None
+    isNsfw: bool | None = None
+
+    @staticmethod
+    def parse(obj: dict):
+        topic = obj.get("primary_community_topic") or {}
+        rules = [CommunityRule.parse(x) for x in obj.get("rules", [])]
+        return Community(
+            id=int(obj["id_str"]),
+            id_str=obj["id_str"],
+            name=obj.get("name", ""),
+            description=obj.get("description"),
+            memberCount=obj.get("member_count", 0),
+            moderatorCount=obj.get("moderator_count", 0),
+            rules=rules,
+            topicId=topic.get("topic_id"),
+            topicName=topic.get("topic_name"),
+            isNsfw=obj.get("is_nsfw"),
         )
 
 
@@ -127,16 +136,11 @@ class UserRef(JSONTrait):
 
     @staticmethod
     def parse(obj: dict):
-        # Handle new nested structure where fields may be in 'core'
-        core = obj.get("core") or {}
-        screen_name = core.get("screen_name") or obj.get("screen_name")
-        name = core.get("name") or obj.get("name")
-
         return UserRef(
             id=int(obj["id_str"]),
             id_str=obj["id_str"],
-            username=screen_name,
-            displayname=name,
+            username=obj["screen_name"],
+            displayname=obj["name"],
         )
 
 
@@ -172,58 +176,29 @@ class User(JSONTrait):
 
     @staticmethod
     def parse(obj: dict, res=None):
-        # Handle new nested structure where some fields moved to 'core' and 'legacy'
-        core = obj.get("core") or {}
-        legacy = obj.get("legacy") or {}
-
-        # Fields can be in either old location (top-level) or new location (core/legacy)
-        screen_name = core.get("screen_name") or obj.get("screen_name")
-        name = core.get("name") or obj.get("name")
-        created_at = core.get("created_at") or obj.get("created_at")
-
-        # Most other fields moved to 'legacy', fallback to top-level for old format
-        description = legacy.get("description") or obj.get("description")
-        followers_count = legacy.get("followers_count") or obj.get("followers_count")
-        friends_count = legacy.get("friends_count") or obj.get("friends_count")
-        statuses_count = legacy.get("statuses_count") or obj.get("statuses_count")
-        favourites_count = legacy.get("favourites_count") or obj.get("favourites_count")
-        listed_count = legacy.get("listed_count") or obj.get("listed_count")
-        media_count = legacy.get("media_count") or obj.get("media_count")
-        location = legacy.get("location") or obj.get("location")
-        profile_image_url = legacy.get("profile_image_url_https") or obj.get("profile_image_url_https")
-        profile_banner_url = legacy.get("profile_banner_url") or obj.get("profile_banner_url")
-        verified = legacy.get("verified") or obj.get("verified")
-        protected = legacy.get("protected") or obj.get("protected")
-        entities = legacy.get("entities") or obj.get("entities", {})
-        pinned_ids = legacy.get("pinned_tweet_ids_str") or obj.get("pinned_tweet_ids_str", [])
-
-        # is_blue_verified is at top level in new format
-        blue = obj.get("is_blue_verified")
-        blue_type = obj.get("verified_type")
-
         return User(
             id=int(obj["id_str"]),
             id_str=obj["id_str"],
-            url=f"https://x.com/{screen_name}",
-            username=screen_name,
-            displayname=name,
-            rawDescription=description,
-            created=email.utils.parsedate_to_datetime(created_at),
-            followersCount=followers_count,
-            friendsCount=friends_count,
-            statusesCount=statuses_count,
-            favouritesCount=favourites_count,
-            listedCount=listed_count,
-            mediaCount=media_count,
-            location=location,
-            profileImageUrl=profile_image_url,
-            profileBannerUrl=profile_banner_url,
-            verified=verified,
-            blue=blue,
-            blueType=blue_type,
-            protected=protected,
-            descriptionLinks=_parse_links({"entities": entities}, ["entities.description.urls", "entities.url.urls"]),
-            pinnedIds=[int(x) for x in pinned_ids],
+            url=f"https://x.com/{obj['screen_name']}",
+            username=obj["screen_name"],
+            displayname=obj["name"],
+            rawDescription=obj["description"],
+            created=email.utils.parsedate_to_datetime(obj["created_at"]),
+            followersCount=obj["followers_count"],
+            friendsCount=obj["friends_count"],
+            statusesCount=obj["statuses_count"],
+            favouritesCount=obj["favourites_count"],
+            listedCount=obj["listed_count"],
+            mediaCount=obj["media_count"],
+            location=obj["location"],
+            profileImageUrl=obj["profile_image_url_https"],
+            profileBannerUrl=obj.get("profile_banner_url"),
+            verified=obj.get("verified"),
+            blue=obj.get("is_blue_verified"),
+            blueType=obj.get("verified_type"),
+            protected=obj.get("protected"),
+            descriptionLinks=_parse_links(obj, ["entities.description.urls", "entities.url.urls"]),
+            pinnedIds=[int(x) for x in obj.get("pinned_tweet_ids_str", [])],
         )
 
 
@@ -837,15 +812,15 @@ def parse_trend(rep: httpx.Response) -> Trend | None:
         return None
 
 
-def parse_about(rep: httpx.Response | dict) -> AccountAbout | None:
+def parse_community(rep: httpx.Response | dict) -> Community | None:
     try:
         res = rep if isinstance(rep, dict) else rep.json()
-        obj = get_or(res, "data.user_result_by_screen_name.result")
-        if not obj:
+        community = res.get("data", {}).get("community")
+        if not community:
             return None
-        return AccountAbout.parse(obj)
+        return Community.parse(community)
     except Exception as e:
-        logger.error(f"Failed to parse about profile - {type(e)}:\n{traceback.format_exc()}")
+        logger.error(f"Failed to parse community - {type(e)}:\n{traceback.format_exc()}")
         return None
 
 
